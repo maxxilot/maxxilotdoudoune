@@ -48,13 +48,6 @@ header{background:var(--black);padding:12px 16px 10px;text-align:center;position
 .filter-btn.active{background:#444;border-color:#666;color:#fff}
 
 /* BARRE COULEUR REF */
-.color-ref-bar{display:none;background:var(--white);border-bottom:1px solid var(--border);padding:10px 14px;align-items:center;gap:12px}
-.color-ref-bar.visible{display:flex}
-.color-ref-thumb{width:50px;height:66px;border-radius:6px;object-fit:cover;border:1px solid var(--border);background:#eee;flex-shrink:0}
-.color-ref-info{flex:1}
-.color-ref-name{font-weight:700;font-size:14px}
-.color-ref-note{font-size:12px;color:var(--muted);margin-top:2px}
-.color-ref-close{font-size:20px;color:var(--muted);cursor:pointer;padding:4px}
 
 /* CATALOGUE */
 .catalogue{padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}
@@ -75,9 +68,18 @@ header{background:var(--black);padding:12px 16px 10px;text-align:center;position
 
 /* SWATCHES */
 .swatches{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
-.swatch{width:17px;height:17px;border-radius:50%;border:2px solid rgba(0,0,0,.15);cursor:pointer;transition:transform .15s;flex-shrink:0}
-.swatch:hover{transform:scale(1.25)}
-.swatch.unavail{opacity:.3;cursor:default}
+.swatch{position:relative;width:24px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.15);flex-shrink:0}
+.swatch.unavail{opacity:.3}
+.swatch .swatch-tip{
+  position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%) translateY(4px);
+  background:#222;color:#fff;font-size:11px;font-weight:600;padding:4px 8px;border-radius:5px;
+  white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s,transform .15s;z-index:10;
+}
+.swatch .swatch-tip::after{
+  content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:#222;
+}
+.swatch:hover .swatch-tip,.swatch.tip-active .swatch-tip{opacity:1;transform:translateX(-50%) translateY(0)}
 .more-colors{font-size:11px;color:var(--muted)}
 
 /* TAILLES SUR CARTE */
@@ -169,15 +171,6 @@ header{background:var(--black);padding:12px 16px 10px;text-align:center;position
   <button class="filter-btn active" data-genre="tous">Tous</button>
   <button class="filter-btn" data-genre="HOMME">Homme</button>
   <button class="filter-btn" data-genre="FEMME">Femme</button>
-</div>
-
-<div class="color-ref-bar" id="colorRefBar">
-  <img class="color-ref-thumb" id="colorRefThumb" src="" alt="">
-  <div class="color-ref-info">
-    <div class="color-ref-name" id="colorRefName"></div>
-    <div class="color-ref-note">Photo de référence de la couleur</div>
-  </div>
-  <div class="color-ref-close" onclick="closeColorRef()">✕</div>
 </div>
 
 <div id="catalogue" class="catalogue">
@@ -297,11 +290,15 @@ function selectTaille(t) {
 function clearTaille() { selectTaille(activeTaille); }
 
 // ── CATALOGUE ───────────────────────────────────────────────
+function baseModele(modele) {
+  return modele.replace(/\s+NOOS$/i, "").trim();
+}
 function groupByModel(articles) {
   const g = {};
   articles.forEach(a => {
-    if (!g[a.modele]) g[a.modele] = { modele:a.modele, nomAffiche:a.nomAffiche||a.modele, genre:a.genre, articles:[] };
-    g[a.modele].articles.push(a);
+    const base = baseModele(a.modele);
+    if (!g[base]) g[base] = { modele:base, nomAffiche: (a.nomAffiche||a.modele).replace(/\s+Col Haut$/i,"").trim(), genre:a.genre, articles:[] };
+    g[base].articles.push(a);
   });
   return Object.values(g);
 }
@@ -340,13 +337,13 @@ function renderCard(g) {
   const genreLabel = g.genre.charAt(0) + g.genre.slice(1).toLowerCase();
   const badgeClass = g.genre==="HOMME" ? "badge-homme" : g.genre==="FEMME" ? "badge-femme" : "badge-enfant";
 
-  const swatchesHtml = toutesColors.slice(0,7).map(col => {
+  const swatchesHtml = toutesColors.map(col => {
     const hex = couleurs[col]?.hex || "#ccc";
     const ok  = activeTaille
       ? dispos.some(a => a.couleur === col && a.taille === activeTaille)
       : dispoCouleurs.includes(col);
-    return `<div class="swatch${ok?"":" unavail"}" style="background:${hex}" title="${col}" onclick="showColorRef('${col}',event)"></div>`;
-  }).join("") + (toutesColors.length > 7 ? `<span class="more-colors">+${toutesColors.length-7}</span>` : "");
+    return `<div class="swatch${ok?"":" unavail"}" style="background:${hex}" onclick="toggleSwatchTip(this,event)"><span class="swatch-tip">${col}</span></div>`;
+  }).join("");
 
   const taillesHtml = dispoTailles.length
     ? dispoTailles.map(t => `<span class="size-tag dispo${t===activeTaille?" hl":""}">${t}</span>`).join("")
@@ -377,15 +374,15 @@ function renderCard(g) {
 }
 
 // ── COULEUR REF ─────────────────────────────────────────────
-function showColorRef(couleur, event) {
+// Tooltip mobile : tap pour afficher le nom de la couleur 2s
+function toggleSwatchTip(el, event) {
   event.stopPropagation();
-  const info = couleurs[couleur];
-  if (!info?.photoUrl) return;
-  document.getElementById("colorRefThumb").src = info.photoUrl;
-  document.getElementById("colorRefName").textContent = couleur;
-  document.getElementById("colorRefBar").classList.add("visible");
+  document.querySelectorAll(".swatch.tip-active").forEach(s => { if (s!==el) s.classList.remove("tip-active"); });
+  el.classList.toggle("tip-active");
+  if (el.classList.contains("tip-active")) {
+    setTimeout(() => el.classList.remove("tip-active"), 2000);
+  }
 }
-function closeColorRef() { document.getElementById("colorRefBar").classList.remove("visible"); }
 
 // ── FILTRES GENRE ───────────────────────────────────────────
 document.getElementById("filters").addEventListener("click", e => {
@@ -398,8 +395,8 @@ document.getElementById("filters").addEventListener("click", e => {
 
 // ── FORMULAIRE ──────────────────────────────────────────────
 function openResa(modele, genre) {
-  resaState = { modele, genre, nomAffiche: groupe ? groupe.nomAffiche : modele, couleur:null, taille:activeTaille, articleId:null };
   const groupe = groupByModel(allArticles).find(g => g.modele === modele);
+  resaState = { modele, genre, nomAffiche: groupe ? groupe.nomAffiche : modele, couleur:null, taille:activeTaille, articleId:null };
   document.getElementById("resaTitle").textContent = groupe ? groupe.nomAffiche : modele;
   document.getElementById("resaSubtitle").textContent = genre.charAt(0)+genre.slice(1).toLowerCase();
   ["inputPrenom","inputTel","inputEmail"].forEach(id => document.getElementById(id).value = "");
@@ -417,7 +414,7 @@ function closeResa() {
 }
 
 function renderResaSwatches() {
-  const arts = allArticles.filter(a => a.modele === resaState.modele);
+  const arts = allArticles.filter(a => baseModele(a.modele) === resaState.modele);
   const dispoCouleurs = [...new Set(arts.filter(a =>
     a.statut==="DISPONIBLE" && (!resaState.taille || a.taille===resaState.taille)
   ).map(a => a.couleur))];
@@ -464,7 +461,7 @@ function renderResaTaille() {
     return;
   }
 
-  const arts   = allArticles.filter(a => a.modele===resaState.modele && a.couleur===resaState.couleur);
+  const arts   = allArticles.filter(a => baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur);
   const dispos = [...new Set(arts.filter(a => a.statut==="DISPONIBLE").map(a => a.taille))];
   const toutes = [...new Set(arts.map(a => a.taille))];
 
@@ -477,7 +474,7 @@ function renderResaTaille() {
 function selectTailleResa(taille) {
   resaState.taille = taille;
   const art = allArticles.find(a =>
-    a.modele===resaState.modele && a.couleur===resaState.couleur &&
+    baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur &&
     a.taille===taille && a.statut==="DISPONIBLE"
   );
   resaState.articleId = art ? art.id : null;
