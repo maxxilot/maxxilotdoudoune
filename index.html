@@ -254,12 +254,12 @@ header{
     <div class="resa-body">
       <div class="delai-tag">⏰ À récupérer sous 7 jours après confirmation</div>
       <div>
-        <label class="form-label">Couleur</label>
-        <div class="form-swatches" id="resaSwatches"></div>
-      </div>
-      <div>
         <label class="form-label">Taille</label>
         <div id="resaTailleZone"></div>
+      </div>
+      <div>
+        <label class="form-label">Couleur</label>
+        <div class="form-swatches" id="resaSwatches"></div>
       </div>
       <div class="resa-actions">
         <button class="btn-add-cart" id="btnAddCart" onclick="addToCart()">🛍️ Ajouter au panier</button>
@@ -314,7 +314,7 @@ header{
 
 <script>
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzzrIF8SKadvDSQmWEyLbGDr3EziKE_Z6NHya-gg7jsFifeiSyyNTp_9JJEGRy3EDj-KQ/exec";
-const ORDRE_TAILLES = ["XXS","XS","S","M","L","XL","XXL","XXXL","2XL","3XL","36","38","40","42","44","46","48","50","52","54"];
+const ORDRE_TAILLES = ["XXS","XS","S","M","L","XL","XXL","2XL","3XL","XXXL","4XL","5XL","2 ANS","4 ANS","6 ANS","6-8 ANS","8 ANS","10 ANS","12-14 ANS","14-16 ANS","36","38","40","42","44","46","48","50","52","54"];
 
 const COLOR_HEX = {
   "ANTHRACITE": "#615857",
@@ -463,7 +463,12 @@ function renderCard(g) {
   const dispos        = g.articles.filter(a => a.statut === "DISPONIBLE");
   const dispoCouleurs = [...new Set(dispos.map(a => a.couleur))];
   const toutesColors  = [...new Set(g.articles.map(a => a.couleur))];
-  const dispoTailles  = [...new Set(dispos.map(a => a.taille))];
+  const dispoTailles  = [...new Set(dispos.map(a => a.taille))].sort((a,b) => {
+    const ia = ORDRE_TAILLES.indexOf(a), ib = ORDRE_TAILLES.indexOf(b);
+    if (ia>=0 && ib>=0) return ia-ib;
+    if (ia>=0) return -1; if (ib>=0) return 1;
+    return a.localeCompare(b);
+  });
 
   const photoUrl = PHOTOS[g.modele] || "";
 
@@ -543,8 +548,8 @@ function openResa(modele, genre) {
   document.getElementById("btnAddCart").disabled = false;
   document.getElementById("btnAddCart").classList.remove("in-cart");
   document.getElementById("btnAddCart").textContent = "🛍️ Ajouter au panier";
-  renderResaSwatches();
   renderResaTaille();
+  renderResaSwatches();
   document.getElementById("resaOverlay").classList.add("visible");
   document.body.style.overflow = "hidden";
 }
@@ -553,14 +558,60 @@ function closeResa() {
   document.body.style.overflow = "";
 }
 
+function renderResaTaille() {
+  const el = document.getElementById("resaTailleZone");
+
+  const arts   = allArticles.filter(a => baseModele(a.modele) === resaState.modele);
+  const dispos = [...new Set(arts.filter(a => a.statut==="DISPONIBLE").map(a => a.taille))];
+  const toutes = [...new Set(arts.map(a => a.taille))].sort((a,b) => {
+    const ia = ORDRE_TAILLES.indexOf(a), ib = ORDRE_TAILLES.indexOf(b);
+    if (ia>=0 && ib>=0) return ia-ib;
+    if (ia>=0) return -1; if (ib>=0) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Si la taille présélectionnée (via la barre du haut) n'est pas dispo pour ce modèle, on la réinitialise.
+  if (resaState.taille && !dispos.includes(resaState.taille)) {
+    resaState.taille = null;
+    resaState.couleur = null;
+    resaState.articleId = null;
+  }
+
+  el.innerHTML = `<div class="form-sizes">${toutes.map(t => {
+    const ok = dispos.includes(t), sel = resaState.taille===t;
+    return `<div class="form-size${ok?" dispo":""}${sel?" selected":""}${!ok?" unavail":""}" onclick="${ok?`selectTailleResa('${t}')`:""}">${t}</div>`;
+  }).join("")}</div>`;
+}
+
+function selectTailleResa(taille) {
+  resaState.taille = taille;
+  resaState.couleur = null;
+  resaState.articleId = null;
+  renderResaTaille();
+  renderResaSwatches();
+}
+
 function renderResaSwatches() {
-  const arts = allArticles.filter(a => baseModele(a.modele) === resaState.modele);
-  const dispoCouleurs = [...new Set(arts.filter(a =>
-    a.statut==="DISPONIBLE" && (!resaState.taille || a.taille===resaState.taille)
-  ).map(a => a.couleur))];
+  const el = document.getElementById("resaSwatches");
+
+  if (!resaState.taille) {
+    el.innerHTML = `<span style="font-size:13px;color:#999">← Choisissez d'abord une taille</span>`;
+    return;
+  }
+
+  const arts = allArticles.filter(a => baseModele(a.modele) === resaState.modele && a.taille === resaState.taille);
+  const dispoCouleurs = [...new Set(arts.filter(a => a.statut==="DISPONIBLE").map(a => a.couleur))];
   const toutesColors = [...new Set(arts.map(a => a.couleur))];
 
-  document.getElementById("resaSwatches").innerHTML = toutesColors.map(col => {
+  if (resaState.taille) {
+    const art = allArticles.find(a =>
+      baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur &&
+      a.taille===resaState.taille && a.statut==="DISPONIBLE"
+    );
+    resaState.articleId = art ? art.id : null;
+  }
+
+  el.innerHTML = toutesColors.map(col => {
     const hex = COLOR_HEX[col] || "#ccc";
     const ok  = dispoCouleurs.includes(col);
     const sel = resaState.couleur === col;
@@ -573,53 +624,12 @@ function renderResaSwatches() {
 
 function selectCouleur(couleur) {
   resaState.couleur = couleur;
-  if (!activeTaille) resaState.taille = null;
-  resaState.articleId = null;
-  renderResaSwatches();
-  renderResaTaille();
-}
-
-function renderResaTaille() {
-  const el = document.getElementById("resaTailleZone");
-
-  if (!resaState.couleur) {
-    el.innerHTML = `<span style="font-size:13px;color:#999">← Choisissez d'abord une couleur</span>`;
-    return;
-  }
-
-  const arts   = allArticles.filter(a => baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur);
-  const dispos = [...new Set(arts.filter(a => a.statut==="DISPONIBLE").map(a => a.taille))];
-  const toutes = [...new Set(arts.map(a => a.taille))];
-
-  // Si la taille présélectionnée (via la barre du haut) n'est pas dispo dans cette couleur,
-  // on bascule automatiquement vers l'affichage normal des tailles disponibles plutôt que de bloquer.
-  if (resaState.taille && !dispos.includes(resaState.taille)) {
-    resaState.taille = null;
-    resaState.articleId = null;
-  }
-
-  if (resaState.taille) {
-    const art = allArticles.find(a =>
-      baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur &&
-      a.taille===resaState.taille && a.statut==="DISPONIBLE"
-    );
-    resaState.articleId = art ? art.id : null;
-  }
-
-  el.innerHTML = `<div class="form-sizes">${toutes.map(t => {
-    const ok = dispos.includes(t), sel = resaState.taille===t;
-    return `<div class="form-size${ok?" dispo":""}${sel?" selected":""}${!ok?" unavail":""}" onclick="${ok?`selectTailleResa('${t}')`:""}">${t}</div>`;
-  }).join("")}</div>`;
-}
-
-function selectTailleResa(taille) {
-  resaState.taille = taille;
   const art = allArticles.find(a =>
-    baseModele(a.modele)===resaState.modele && a.couleur===resaState.couleur &&
-    a.taille===taille && a.statut==="DISPONIBLE"
+    baseModele(a.modele)===resaState.modele && a.couleur===couleur &&
+    a.taille===resaState.taille && a.statut==="DISPONIBLE"
   );
   resaState.articleId = art ? art.id : null;
-  renderResaTaille();
+  renderResaSwatches();
 }
 
 // ── PANIER : ajout depuis le formulaire article ──────────────
